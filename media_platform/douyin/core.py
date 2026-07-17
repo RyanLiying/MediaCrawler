@@ -163,6 +163,9 @@ class DouYinCrawler(AbstractCrawler):
                     break
                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
                 page_aweme_list = []
+                detail_fields = {"play_count", "is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
+                selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
+                need_detail = bool(selected_extra_fields) and any(f in detail_fields for f in selected_extra_fields)
                 for post_item in posts_res.get("data"):
                     try:
                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
@@ -173,6 +176,17 @@ class DouYinCrawler(AbstractCrawler):
                         utils.logger.info(f"[DouYinCrawler.search] skip duplicate aweme_id: {aweme_id}")
                         continue
                     seen_aweme_ids.add(aweme_id)
+
+                    if need_detail and aweme_id:
+                        try:
+                            detail_info = await self.dy_client.get_video_by_id(aweme_id)
+                            if detail_info:
+                                aweme_info.update(detail_info)
+                                utils.logger.info(f"[DouYinCrawler.search] enriched aweme_id: {aweme_id}")
+                                await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
+                        except DataFetchError as e:
+                            utils.logger.warning(f"[DouYinCrawler.search] failed to enrich aweme_id {aweme_id}: {e}")
+
                     aweme_list.append(aweme_id)
                     page_aweme_list.append(aweme_id)
                     await douyin_store.update_douyin_aweme(aweme_item=aweme_info)
