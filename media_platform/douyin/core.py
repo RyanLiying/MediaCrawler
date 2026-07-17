@@ -137,6 +137,10 @@ class DouYinCrawler(AbstractCrawler):
             aweme_list: List[str] = []
             page = 0
             dy_search_id = ""
+            author_detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
+            selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
+            need_author_detail = bool(selected_extra_fields) and any(f in author_detail_fields for f in selected_extra_fields)
+            enriched_author_cache: Dict[str, Dict] = {}
             while (page - start_page + 1) * dy_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
                 if page < start_page:
                     utils.logger.info(f"[DouYinCrawler.search] Skip {page}")
@@ -163,10 +167,6 @@ class DouYinCrawler(AbstractCrawler):
                     break
                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
                 page_aweme_list = []
-                author_detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
-                selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
-                need_author_detail = bool(selected_extra_fields) and any(f in author_detail_fields for f in selected_extra_fields)
-                enriched_author_cache: Dict[str, Dict] = {}
                 for post_item in posts_res.get("data"):
                     try:
                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
@@ -198,10 +198,7 @@ class DouYinCrawler(AbstractCrawler):
                                         )
                                         author.update(user)
                                         aweme_info["author"] = author
-                                        enriched_author_cache[sec_uid] = {
-                                            k: user.get(k, "")
-                                            for k in author_detail_fields
-                                        }
+                                        enriched_author_cache[sec_uid] = user
                                         utils.logger.info(
                                             f"[DouYinCrawler.search] author after enrich aweme_id={aweme_id} sec_uid={sec_uid} "
                                             f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
