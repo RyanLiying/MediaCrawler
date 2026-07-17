@@ -166,7 +166,7 @@ class DouYinCrawler(AbstractCrawler):
                 author_detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
                 selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
                 need_author_detail = bool(selected_extra_fields) and any(f in author_detail_fields for f in selected_extra_fields)
-                enriched_sec_uids: Set[str] = set()
+                enriched_author_cache: Dict[str, Dict] = {}
                 for post_item in posts_res.get("data"):
                     try:
                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
@@ -181,30 +181,38 @@ class DouYinCrawler(AbstractCrawler):
                     if need_author_detail and aweme_id:
                         author = aweme_info.get("author") or {}
                         sec_uid = author.get("sec_uid", "")
-                        if sec_uid and sec_uid not in enriched_sec_uids:
-                            enriched_sec_uids.add(sec_uid)
-                            try:
-                                user_profile = await self.dy_client.get_user_info(sec_uid)
-                                if user_profile and user_profile.get("user"):
-                                    user = user_profile["user"]
-                                    utils.logger.info(
-                                        f"[DouYinCrawler.search] author before enrich aweme_id={aweme_id} sec_uid={sec_uid} "
-                                        f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
-                                        f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
-                                    )
-                                    author.update(user)
-                                    aweme_info["author"] = author
-                                    utils.logger.info(
-                                        f"[DouYinCrawler.search] author after enrich aweme_id={aweme_id} sec_uid={sec_uid} "
-                                        f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
-                                        f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
-                                    )
-                                else:
-                                    utils.logger.warning(
-                                        f"[DouYinCrawler.search] user_profile empty for aweme_id={aweme_id} sec_uid={sec_uid} response={user_profile}"
-                                    )
-                            except DataFetchError as e:
-                                utils.logger.warning(f"[DouYinCrawler.search] failed to enrich author for aweme_id {aweme_id}: {e}")
+                        if sec_uid:
+                            if sec_uid in enriched_author_cache:
+                                author.update(enriched_author_cache[sec_uid])
+                                aweme_info["author"] = author
+                                utils.logger.info(f"[DouYinCrawler.search] reuse cached author for aweme_id={aweme_id} sec_uid={sec_uid}")
+                            else:
+                                try:
+                                    user_profile = await self.dy_client.get_user_info(sec_uid)
+                                    if user_profile and user_profile.get("user"):
+                                        user = user_profile["user"]
+                                        utils.logger.info(
+                                            f"[DouYinCrawler.search] author before enrich aweme_id={aweme_id} sec_uid={sec_uid} "
+                                            f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
+                                            f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
+                                        )
+                                        author.update(user)
+                                        aweme_info["author"] = author
+                                        enriched_author_cache[sec_uid] = {
+                                            k: user.get(k, "")
+                                            for k in author_detail_fields
+                                        }
+                                        utils.logger.info(
+                                            f"[DouYinCrawler.search] author after enrich aweme_id={aweme_id} sec_uid={sec_uid} "
+                                            f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
+                                            f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
+                                        )
+                                    else:
+                                        utils.logger.warning(
+                                            f"[DouYinCrawler.search] user_profile empty for aweme_id={aweme_id} sec_uid={sec_uid} response={user_profile}"
+                                        )
+                                except DataFetchError as e:
+                                    utils.logger.warning(f"[DouYinCrawler.search] failed to enrich author for aweme_id {aweme_id}: {e}")
                         await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
 
                     aweme_list.append(aweme_id)
