@@ -126,7 +126,7 @@ class DouYinCrawler(AbstractCrawler):
 
     async def search(self) -> None:
         utils.logger.info("[DouYinCrawler.search] Begin search douyin keywords")
-        dy_limit_count = 10  # douyin limit page fixed value
+        dy_limit_count = 15  # douyin limit page fixed value
         if config.CRAWLER_MAX_NOTES_COUNT < dy_limit_count:
             config.CRAWLER_MAX_NOTES_COUNT = dy_limit_count
         start_page = config.START_PAGE  # start page number
