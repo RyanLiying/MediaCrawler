@@ -163,7 +163,7 @@ class DouYinCrawler(AbstractCrawler):
                     break
                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
                 page_aweme_list = []
-                detail_fields = {"play_count", "is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
+                detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
                 selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
                 need_detail = bool(selected_extra_fields) and any(f in detail_fields for f in selected_extra_fields)
                 for post_item in posts_res.get("data"):
