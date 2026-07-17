@@ -316,7 +316,9 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
             "publish_video_strategy_type": 2,
             "personal_center_strategy": 1,
         }
-        return await self.get(uri, params)
+        headers = copy.copy(self.headers)
+        headers["Referer"] = f"https://www.douyin.com/user/{sec_user_id}"
+        return await self.get(uri, params, headers)
 
     async def get_user_aweme_posts(self, sec_user_id: str, max_cursor: str = "") -> Dict:
         uri = "/aweme/v1/web/aweme/post/"
