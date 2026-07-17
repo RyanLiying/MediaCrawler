@@ -163,9 +163,10 @@ class DouYinCrawler(AbstractCrawler):
                     break
                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
                 page_aweme_list = []
-                detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
+                author_detail_fields = {"is_verified", "verification_type", "enterprise_verify_reason", "is_enterprise_vip", "is_gov_media_vip"}
                 selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
-                need_detail = bool(selected_extra_fields) and any(f in detail_fields for f in selected_extra_fields)
+                need_author_detail = bool(selected_extra_fields) and any(f in author_detail_fields for f in selected_extra_fields)
+                enriched_sec_uids: Set[str] = set()
                 for post_item in posts_res.get("data"):
                     try:
                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
@@ -177,14 +178,19 @@ class DouYinCrawler(AbstractCrawler):
                         continue
                     seen_aweme_ids.add(aweme_id)
 
-                    if need_detail and aweme_id:
-                        try:
-                            detail_info = await self.dy_client.get_video_by_id(aweme_id)
-                            if detail_info:
-                                aweme_info.update(detail_info)
-                                utils.logger.info(f"[DouYinCrawler.search] enriched aweme_id: {aweme_id}")
-                        except DataFetchError as e:
-                            utils.logger.warning(f"[DouYinCrawler.search] failed to enrich aweme_id {aweme_id}: {e}")
+                    if need_author_detail and aweme_id:
+                        author = aweme_info.get("author") or {}
+                        sec_uid = author.get("sec_uid", "")
+                        if sec_uid and sec_uid not in enriched_sec_uids:
+                            enriched_sec_uids.add(sec_uid)
+                            try:
+                                user_profile = await self.dy_client.get_user_info(sec_uid)
+                                if user_profile and user_profile.get("user"):
+                                    author.update(user_profile["user"])
+                                    aweme_info["author"] = author
+                                    utils.logger.info(f"[DouYinCrawler.search] enriched author for aweme_id: {aweme_id}")
+                            except DataFetchError as e:
+                                utils.logger.warning(f"[DouYinCrawler.search] failed to enrich author for aweme_id {aweme_id}: {e}")
                         await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
 
                     aweme_list.append(aweme_id)
