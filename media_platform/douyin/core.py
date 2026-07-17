@@ -183,9 +183,9 @@ class DouYinCrawler(AbstractCrawler):
                             if detail_info:
                                 aweme_info.update(detail_info)
                                 utils.logger.info(f"[DouYinCrawler.search] enriched aweme_id: {aweme_id}")
-                                await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                         except DataFetchError as e:
                             utils.logger.warning(f"[DouYinCrawler.search] failed to enrich aweme_id {aweme_id}: {e}")
+                        await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
 
                     aweme_list.append(aweme_id)
                     page_aweme_list.append(aweme_id)
