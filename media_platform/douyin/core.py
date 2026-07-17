@@ -186,9 +186,23 @@ class DouYinCrawler(AbstractCrawler):
                             try:
                                 user_profile = await self.dy_client.get_user_info(sec_uid)
                                 if user_profile and user_profile.get("user"):
-                                    author.update(user_profile["user"])
+                                    user = user_profile["user"]
+                                    utils.logger.info(
+                                        f"[DouYinCrawler.search] author before enrich aweme_id={aweme_id} sec_uid={sec_uid} "
+                                        f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
+                                        f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
+                                    )
+                                    author.update(user)
                                     aweme_info["author"] = author
-                                    utils.logger.info(f"[DouYinCrawler.search] enriched author for aweme_id: {aweme_id}")
+                                    utils.logger.info(
+                                        f"[DouYinCrawler.search] author after enrich aweme_id={aweme_id} sec_uid={sec_uid} "
+                                        f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
+                                        f"custom_verify={author.get('custom_verify')} enterprise_verify_reason={author.get('enterprise_verify_reason')}"
+                                    )
+                                else:
+                                    utils.logger.warning(
+                                        f"[DouYinCrawler.search] user_profile empty for aweme_id={aweme_id} sec_uid={sec_uid} response={user_profile}"
+                                    )
                             except DataFetchError as e:
                                 utils.logger.warning(f"[DouYinCrawler.search] failed to enrich author for aweme_id {aweme_id}: {e}")
                         await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
