@@ -188,9 +188,15 @@ class DouYinCrawler(AbstractCrawler):
                                 utils.logger.info(f"[DouYinCrawler.search] reuse cached author for aweme_id={aweme_id} sec_uid={sec_uid}")
                             else:
                                 try:
-                                    user_profile = await self.dy_client.get_user_info(sec_uid)
-                                    if user_profile and user_profile.get("user"):
-                                        user = user_profile["user"]
+                                    use_web = getattr(config, "USE_WEB_AUTHOR_VERIFICATION", False)
+                                    user: Dict = {}
+                                    if use_web:
+                                        user = await self.dy_client.get_user_verification_from_web(sec_uid)
+                                    if not user:
+                                        user_profile = await self.dy_client.get_user_info(sec_uid)
+                                        if user_profile and user_profile.get("user"):
+                                            user = user_profile["user"]
+                                    if user:
                                         utils.logger.info(
                                             f"[DouYinCrawler.search] author before enrich aweme_id={aweme_id} sec_uid={sec_uid} "
                                             f"is_verified={author.get('is_verified')} verification_type={author.get('verification_type')} "
@@ -206,7 +212,7 @@ class DouYinCrawler(AbstractCrawler):
                                         )
                                     else:
                                         utils.logger.warning(
-                                            f"[DouYinCrawler.search] user_profile empty for aweme_id={aweme_id} sec_uid={sec_uid} response={user_profile}"
+                                            f"[DouYinCrawler.search] user_profile empty for aweme_id={aweme_id} sec_uid={sec_uid}"
                                         )
                                 except DataFetchError as e:
                                     utils.logger.warning(f"[DouYinCrawler.search] failed to enrich author for aweme_id {aweme_id}: {e}")

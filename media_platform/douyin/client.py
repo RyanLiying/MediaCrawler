@@ -20,6 +20,7 @@
 import asyncio
 import copy
 import json
+import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Callable, Dict, Union, Optional
 
@@ -319,6 +320,140 @@ class DouYinClient(AbstractApiClient, ProxyRefreshMixin):
         headers = copy.copy(self.headers)
         headers["Referer"] = f"https://www.douyin.com/user/{sec_user_id}"
         return await self.get(uri, params, headers)
+
+    async def get_user_verification_from_web(self, sec_user_id: str) -> Dict[str, Any]:
+        """
+        从抖音用户主页 HTML/SSR 数据中提取认证信息。
+        返回仅包含认证相关字段的字典，失败返回空字典。
+        """
+        result: Dict[str, Any] = {}
+        if not self.playwright_page:
+            return result
+
+        page = None
+        try:
+            url = f"https://www.douyin.com/user/{sec_user_id}"
+            utils.logger.info(f"[DouYinClient.get_user_verification_from_web] navigating to {url}")
+
+            try:
+                context = self.playwright_page.context
+                page = await context.new_page()
+            except Exception as e:
+                utils.logger.warning(f"[DouYinClient.get_user_verification_from_web] new_page failed: {e}, fallback to current page")
+                page = self.playwright_page
+
+            await page.goto(url, wait_until="domcontentloaded", timeout=10000)
+            await asyncio.sleep(2)
+
+            ssr_info = await page.evaluate("""() => {
+                const keys = ['_SSR_HYDRATED_DATA', '__INITIAL_STATE__', '__SERVER_DATA__', '__DOUYIN_USER__'];
+                for (const key of keys) {
+                    if (window[key]) return {key: key, data: window[key]};
+                }
+                return null;
+            }""")
+            if ssr_info:
+                utils.logger.info(f"[DouYinClient.get_user_verification_from_web] found SSR data: key={ssr_info.get('key')}")
+                user = self._extract_user_from_ssr(ssr_info.get("data"), sec_user_id)
+                if user:
+                    result = {
+                        "is_verified": user.get("is_verified") if user.get("is_verified") is not None else 0,
+                        "verification_type": user.get("verification_type", ""),
+                        "custom_verify": user.get("custom_verify", ""),
+                        "enterprise_verify_reason": user.get("enterprise_verify_reason", ""),
+                    }
+                    if not result["verification_type"] and not result["enterprise_verify_reason"]:
+                        cert_info = user.get("account_cert_info")
+                        result = self._parse_account_cert_info(cert_info, result)
+
+            if not result.get("is_verified"):
+                body_text = await page.evaluate("""() => document.body ? document.body.innerText : ''""")
+                lines = [ln.strip() for ln in body_text.split('\n') if ln.strip()]
+                for i, line in enumerate(lines):
+                    if line == "认证徽章":
+                        cert_reason = lines[i + 1] if i + 1 < len(lines) else ""
+                        result["is_verified"] = 1
+                        result["custom_verify"] = cert_reason
+                        badge_text = cert_reason.lower()
+                        if any(k in badge_text for k in ["蓝v", "企业", "官方", "机构"]):
+                            result["verification_type"] = 2
+                        else:
+                            result["verification_type"] = 1
+                        utils.logger.info(f"[DouYinClient.get_user_verification_from_web] found cert badge via body text: {cert_reason}")
+                        break
+
+                if not result.get("is_verified"):
+                    badge_info = await page.evaluate("""() => {
+                        const keywords = ['认证徽章', '黄V', '蓝V', 'verified'];
+                        const elements = document.querySelectorAll('img, svg, span, i, div, a');
+                        for (const el of elements) {
+                            const text = (el.getAttribute('alt') || el.getAttribute('title') || el.textContent || '').trim();
+                            if (keywords.some(k => text.includes(k))) {
+                                return {
+                                    text: text.substring(0, 100),
+                                    tag: el.tagName,
+                                    className: (el.className || '').substring(0, 200),
+                                };
+                            }
+                        }
+                        return null;
+                    }""")
+                    if badge_info:
+                        utils.logger.info(f"[DouYinClient.get_user_verification_from_web] found DOM badge: {badge_info}")
+                        result["is_verified"] = 1
+                        badge_text = badge_info.get("text", "").lower()
+                        if any(k in badge_text for k in ["蓝v", "企业", "官方", "机构"]):
+                            result["verification_type"] = 2
+                        else:
+                            result["verification_type"] = 1
+
+            utils.logger.info(f"[DouYinClient.get_user_verification_from_web] result for {sec_user_id}: {result}")
+        except Exception as e:
+            utils.logger.warning(f"[DouYinClient.get_user_verification_from_web] failed for {sec_user_id}: {e}")
+        finally:
+            if page and page is not self.playwright_page:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
+        return result
+
+    def _extract_user_from_ssr(self, data: Any, sec_uid: str) -> Optional[Dict]:
+        if isinstance(data, dict):
+            if data.get("sec_uid") == sec_uid or data.get("sec_user_id") == sec_uid:
+                return data
+            for v in data.values():
+                user = self._extract_user_from_ssr(v, sec_uid)
+                if user:
+                    return user
+        elif isinstance(data, list):
+            for item in data:
+                user = self._extract_user_from_ssr(item, sec_uid)
+                if user:
+                    return user
+        return None
+
+    def _parse_account_cert_info(self, cert_info: Any, result: Dict[str, Any]) -> Dict[str, Any]:
+        if isinstance(cert_info, str):
+            try:
+                cert_info = json.loads(cert_info)
+            except json.JSONDecodeError:
+                return result
+        if not isinstance(cert_info, dict):
+            return result
+
+        label_text = str(cert_info.get("label_text", ""))
+        label_style = cert_info.get("label_style", 0)
+        is_biz = cert_info.get("is_biz_account", 0)
+        if label_text or label_style or is_biz:
+            result["is_verified"] = 1
+            result["enterprise_verify_reason"] = label_text
+            if is_biz or label_style in (7, 8):
+                result["verification_type"] = 2
+            else:
+                result["verification_type"] = 1
+        return result
 
     async def get_user_aweme_posts(self, sec_user_id: str, max_cursor: str = "") -> Dict:
         uri = "/aweme/v1/web/aweme/post/"
