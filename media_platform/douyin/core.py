@@ -127,8 +127,6 @@ class DouYinCrawler(AbstractCrawler):
     async def search(self) -> None:
         utils.logger.info("[DouYinCrawler.search] Begin search douyin keywords")
         dy_limit_count = 15  # douyin limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < dy_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = dy_limit_count
         start_page = config.START_PAGE  # start page number
         seen_aweme_ids: Set[str] = set()  # dedupe across pages/keywords
         for keyword in config.KEYWORDS.split(","):
@@ -141,7 +139,10 @@ class DouYinCrawler(AbstractCrawler):
             selected_extra_fields = getattr(config, "SELECTED_EXTRA_FIELDS", [])
             need_author_detail = bool(selected_extra_fields) and any(f in author_detail_fields for f in selected_extra_fields)
             enriched_author_cache: Dict[str, Dict] = {}
+            fetched_count = 0
             while (page - start_page + 1) * dy_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
+                if fetched_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                    break
                 if page < start_page:
                     utils.logger.info(f"[DouYinCrawler.search] Skip {page}")
                     page += 1
@@ -168,6 +169,8 @@ class DouYinCrawler(AbstractCrawler):
                 dy_search_id = posts_res.get("extra", {}).get("logid", "")
                 page_aweme_list = []
                 for post_item in posts_res.get("data"):
+                    if fetched_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                        break
                     try:
                         aweme_info: Dict = (post_item.get("aweme_info") or post_item.get("aweme_mix_info", {}).get("mix_items")[0])
                     except TypeError:
@@ -220,6 +223,7 @@ class DouYinCrawler(AbstractCrawler):
 
                     aweme_list.append(aweme_id)
                     page_aweme_list.append(aweme_id)
+                    fetched_count += 1
                     await douyin_store.update_douyin_aweme(aweme_item=aweme_info)
                     await self.get_aweme_media(aweme_item=aweme_info)
                 
@@ -229,7 +233,7 @@ class DouYinCrawler(AbstractCrawler):
                 # Sleep after each page navigation
                 await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                 utils.logger.info(f"[DouYinCrawler.search] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after page {page-1}")
-            utils.logger.info(f"[DouYinCrawler.search] keyword:{keyword}, aweme_list:{aweme_list}")
+            utils.logger.info(f"[DouYinCrawler.search] keyword:{keyword}, aweme_list:{aweme_list}, fetched_count:{fetched_count}")
 
     async def get_specified_awemes(self):
         """Get the information and comments of the specified post from URLs or IDs"""
