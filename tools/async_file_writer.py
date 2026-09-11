@@ -27,6 +27,17 @@ import config
 from tools.utils import utils
 from tools.words import AsyncWordCloudGenerator
 
+# 一次爬虫运行（一个进程）共用同一个时间戳，保证运行期间所有写入落到同一个文件。
+# 用模块级缓存而不是实例属性：contents/comments 可能由不同的 AsyncFileWriter 实例写入。
+_run_timestamp: str = ""
+
+def _get_run_timestamp() -> str:
+    global _run_timestamp
+    if not _run_timestamp:
+        from datetime import datetime
+        _run_timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    return _run_timestamp
+
 class AsyncFileWriter:
     def __init__(self, platform: str, crawler_type: str):
         self.lock = asyncio.Lock()
@@ -40,7 +51,7 @@ class AsyncFileWriter:
         else:
             base_path = f"data/{self.platform}/{file_type}"
         pathlib.Path(base_path).mkdir(parents=True, exist_ok=True)
-        file_name = f"{self.crawler_type}_{item_type}_{utils.get_current_date()}.{file_type}"
+        file_name = f"{self.crawler_type}_{item_type}_{_get_run_timestamp()}.{file_type}"
         return f"{base_path}/{file_name}"
 
     async def write_to_csv(self, item: Dict, item_type: str):
@@ -137,7 +148,7 @@ class AsyncFileWriter:
             else:
                 words_base_path = f"data/{self.platform}/words"
             pathlib.Path(words_base_path).mkdir(parents=True, exist_ok=True)
-            words_file_prefix = f"{words_base_path}/{self.crawler_type}_comments_{utils.get_current_date()}"
+            words_file_prefix = f"{words_base_path}/{self.crawler_type}_comments_{_get_run_timestamp()}"
 
             utils.logger.info(f"[AsyncFileWriter.generate_wordcloud_from_comments] Generating wordcloud from {len(filtered_data)} comments")
             await self.wordcloud_generator.generate_word_frequency_and_cloud(filtered_data, words_file_prefix)
